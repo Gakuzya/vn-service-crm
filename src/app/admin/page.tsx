@@ -21,7 +21,8 @@ import {
   LogOut,
   ShieldCheck,
   ChevronRight,
-  Loader2
+  Loader2,
+  Settings
 } from "lucide-react";
 import AdminTimeline from "@/components/AdminTimeline";
 import AdminKanban from "@/components/AdminKanban";
@@ -335,6 +336,15 @@ export default function AdminPage() {
               onChange={(e) => setSelectedDate(e.target.value)}
               className="px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
             />
+
+            <Link
+              href="/admin/settings"
+              title="Управление услугами, ценами и персоналом"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 hover:bg-amber-500 hover:text-slate-950 font-semibold text-xs transition-all shadow-sm"
+            >
+              <Settings className="w-4 h-4" />
+              <span className="hidden md:inline">Услуги и Мастера</span>
+            </Link>
 
             <button
               type="button"
