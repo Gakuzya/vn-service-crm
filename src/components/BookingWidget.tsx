@@ -20,7 +20,9 @@ import {
   MapPin,
   Clock3,
   Sparkles,
-  Tag
+  Tag,
+  Moon,
+  Sun
 } from "lucide-react";
 
 interface ServiceItem {
@@ -43,7 +45,55 @@ interface SlotItem {
   slotStart: string;
   slotEnd: string;
   available: boolean;
+  isPast?: boolean;
   freeSlotsLeft: number;
+}
+
+// Вспомогательные функции времени строго по часовому поясу Астаны (UTC+5)
+export function getAstanaDateNow() {
+  const now = new Date();
+  const dateStr = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Almaty",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+
+  const hour = parseInt(
+    new Intl.DateTimeFormat("ru-RU", {
+      timeZone: "Asia/Almaty",
+      hour: "2-digit",
+      hour12: false,
+    }).format(now),
+    10
+  );
+
+  const minute = parseInt(
+    new Intl.DateTimeFormat("ru-RU", {
+      timeZone: "Asia/Almaty",
+      minute: "2-digit",
+      hour12: false,
+    }).format(now),
+    10
+  );
+
+  // Смена СТО VN SERVICE: с 09:00 до 20:00 ежедневно.
+  // Запись на сегодня закрыта, если время >= 19:30 или >= 20:00
+  const isClosedToday = hour >= 20 || (hour === 19 && minute >= 30);
+  const isOpenNow = hour >= 9 && hour < 20;
+
+  return { dateStr, hour, minute, isClosedToday, isOpenNow };
+}
+
+export function getAstanaDateOffset(daysOffset: number): string {
+  const now = new Date();
+  const target = new Date(now.getTime() + daysOffset * 24 * 60 * 60 * 1000);
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Almaty",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(target);
 }
 
 export default function BookingWidget() {
@@ -67,12 +117,13 @@ export default function BookingWidget() {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
-  // Выбор даты и слота
+  // Выбор даты и слота с учетом времени Астаны (если смена окончена — по умолчанию открываем завтра)
   const [selectedDate, setSelectedDate] = useState<string>(() => {
-    const today = new Date();
-    return today.toISOString().split("T")[0];
+    const { dateStr, isClosedToday } = getAstanaDateNow();
+    return isClosedToday ? getAstanaDateOffset(1) : dateStr;
   });
   const [slots, setSlots] = useState<SlotItem[]>([]);
+  const [slotsMeta, setSlotsMeta] = useState<any>(null);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState<SlotItem | null>(null);
 
@@ -182,6 +233,7 @@ export default function BookingWidget() {
         const data = await res.json();
         if (data.slots) {
           setSlots(data.slots);
+          setSlotsMeta(data.meta || null);
         }
       } catch (err) {
         console.error("Ошибка загрузки слотов:", err);
@@ -292,14 +344,19 @@ export default function BookingWidget() {
     }
   };
 
+  // Текущее время в Астане для генерации дней и статуса работы
+  const astanaNow = getAstanaDateNow();
+
   // Генерация ближайших 7 дней
   const next7Days = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() + i);
-    const dateStr = d.toISOString().split("T")[0];
-    const dayName = d.toLocaleDateString("ru-RU", { weekday: "short" });
-    const dayNum = d.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
-    return { dateStr, dayName, dayNum, isToday: i === 0 };
+    const dateStr = getAstanaDateOffset(i);
+    const dObj = new Date(`${dateStr}T12:00:00+05:00`);
+    const dayName = dObj.toLocaleDateString("ru-RU", { weekday: "short" });
+    const dayNum = dObj.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
+    const isToday = i === 0;
+    const isTomorrow = i === 1;
+    const isClosedForToday = isToday && astanaNow.isClosedToday;
+    return { dateStr, dayName, dayNum, isToday, isTomorrow, isClosedForToday };
   });
 
   return (
@@ -318,10 +375,24 @@ export default function BookingWidget() {
                   Астана • Акжол 52/1
                 </span>
               </h2>
-              <p className="text-xs text-slate-400 flex items-center gap-1.5 mt-0.5">
-                <MapPin className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-                <span className="truncate">г. Астана, район Байконыр, пр. Акжол, 52/1</span>
-              </p>
+              <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 mt-1 text-xs">
+                <span className="text-slate-400 flex items-center gap-1">
+                  <MapPin className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                  <span className="truncate">г. Астана, район Байконыр, пр. Акжол, 52/1</span>
+                </span>
+                <span className="text-slate-600 hidden sm:inline">•</span>
+                {astanaNow.isOpenNow ? (
+                  <span className="text-emerald-400 font-semibold flex items-center gap-1.5 text-[11px] bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/25">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    Сейчас открыто (до 20:00)
+                  </span>
+                ) : (
+                  <span className="text-amber-400 font-semibold flex items-center gap-1.5 text-[11px] bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/25">
+                    <Moon className="w-3 h-3 text-amber-400" />
+                    Закрыто • Откроемся {astanaNow.hour < 9 ? "сегодня" : "завтра"} в 09:00
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -601,65 +672,104 @@ export default function BookingWidget() {
                     key={d.dateStr}
                     type="button"
                     onClick={() => setSelectedDate(d.dateStr)}
-                    className={`flex-1 min-w-[70px] py-2 px-1.5 rounded-xl border text-center transition-all ${
+                    className={`flex-1 min-w-[76px] py-2 px-1.5 rounded-xl border text-center transition-all ${
                       isSelected
                         ? "bg-sky-500 border-sky-400 text-slate-950 font-bold shadow-md shadow-sky-500/20"
+                        : d.isClosedForToday
+                        ? "bg-slate-900/60 border-slate-800 text-slate-500 hover:bg-slate-800/80"
                         : "bg-slate-800/60 border-slate-700 text-slate-300 hover:bg-slate-800"
                     }`}
                   >
                     <div className="text-[10px] uppercase tracking-wider opacity-80">
-                      {d.isToday ? "Сегодня" : d.dayName}
+                      {d.isToday ? "Сегодня" : d.isTomorrow ? "Завтра" : d.dayName}
                     </div>
                     <div className="text-xs font-semibold mt-0.5">{d.dayNum}</div>
+                    {d.isClosedForToday && (
+                      <div className="text-[9px] text-amber-400/90 font-medium -mt-0.5">
+                        закрыто
+                      </div>
+                    )}
                   </button>
                 );
               })}
             </div>
 
-            {/* Сетка слотов */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-xs text-slate-400">
-                <span>Свободные окна:</span>
-                <span className="flex items-center gap-1 text-slate-400">
-                  <Clock3 className="w-3 h-3 text-sky-400" /> Длительность:{" "}
-                  {selectedService?.durationMinutes} мин.
-                </span>
+            {/* Если выбрано "Сегодня", но смена СТО уже завершена (после 20:00 или нет доступных окон) */}
+            {selectedDate === astanaNow.dateStr && (astanaNow.isClosedToday || (slotsMeta?.isToday && slotsMeta?.availableSlotsCount === 0)) ? (
+              <div className="p-6 rounded-2xl bg-amber-500/10 border border-amber-500/25 text-center space-y-3.5 animate-in fade-in duration-300">
+                <div className="w-12 h-12 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-400 flex items-center justify-center mx-auto shadow-lg shadow-amber-500/10">
+                  <Moon className="w-6 h-6" />
+                </div>
+                <div className="space-y-1">
+                  <h4 className="font-bold text-white text-sm sm:text-base">Рабочий день СТО на сегодня завершен</h4>
+                  <p className="text-xs text-slate-300 max-w-md mx-auto leading-relaxed">
+                    Мастера VN SERVICE закончили смену в 20:00. Прием автомобилей на сегодня окончен, но вы можете прямо сейчас записаться на завтра!
+                  </p>
+                </div>
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-950/80 border border-amber-500/30 text-xs font-bold text-amber-300">
+                  <Clock className="w-4 h-4 text-amber-400" />
+                  Мы откроемся завтра в 09:00
+                </div>
+                <div className="pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const tomorrowStr = next7Days[1]?.dateStr;
+                      if (tomorrowStr) setSelectedDate(tomorrowStr);
+                    }}
+                    className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-bold text-xs shadow-lg shadow-sky-500/20 transition-all inline-flex items-center gap-2"
+                  >
+                    <CalendarIcon className="w-4 h-4" /> Записаться на завтра ({next7Days[1]?.dayNum}) с 09:00
+                  </button>
+                </div>
               </div>
+            ) : (
+              /* Сетка слотов */
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs text-slate-400">
+                  <span>Свободные окна:</span>
+                  <span className="flex items-center gap-1 text-slate-400">
+                    <Clock3 className="w-3 h-3 text-sky-400" /> Длительность:{" "}
+                    {selectedService?.durationMinutes} мин.
+                  </span>
+                </div>
 
-              {loadingSlots ? (
-                <div className="flex flex-col items-center justify-center py-8 gap-2">
-                  <Loader2 className="w-6 h-6 text-sky-400 animate-spin" />
-                  <span className="text-xs text-slate-400">Проверяем свободные подъемники...</span>
-                </div>
-              ) : slots.length === 0 ? (
-                <div className="p-4 text-center text-xs text-slate-400 bg-slate-800/40 rounded-xl">
-                  На этот день нет свободных окон
-                </div>
-              ) : (
-                <div className="grid grid-cols-4 gap-2 max-h-[220px] overflow-y-auto pr-1">
-                  {slots.map((slot) => {
-                    const isSelected = selectedSlot?.slotStart === slot.slotStart;
-                    return (
-                      <button
-                        key={slot.time}
-                        type="button"
-                        disabled={!slot.available}
-                        onClick={() => setSelectedSlot(slot)}
-                        className={`py-2 px-2 rounded-xl text-xs font-semibold border transition-all ${
-                          !slot.available
-                            ? "bg-slate-800/20 border-slate-800/40 text-slate-600 line-through cursor-not-allowed"
-                            : isSelected
-                            ? "bg-sky-500 text-slate-950 border-sky-400 shadow-md shadow-sky-500/20 font-bold"
-                            : "bg-slate-800/80 border-slate-700/80 text-slate-200 hover:border-sky-400/60 hover:bg-slate-800"
-                        }`}
-                      >
-                        {slot.time}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+                {loadingSlots ? (
+                  <div className="flex flex-col items-center justify-center py-8 gap-2">
+                    <Loader2 className="w-6 h-6 text-sky-400 animate-spin" />
+                    <span className="text-xs text-slate-400">Проверяем свободные подъемники...</span>
+                  </div>
+                ) : slots.length === 0 ? (
+                  <div className="p-4 text-center text-xs text-slate-400 bg-slate-800/40 rounded-xl">
+                    На этот день нет свободных окон
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-4 gap-2 max-h-[220px] overflow-y-auto pr-1">
+                    {slots.map((slot) => {
+                      const isSelected = selectedSlot?.slotStart === slot.slotStart;
+                      return (
+                        <button
+                          key={slot.time}
+                          type="button"
+                          disabled={!slot.available}
+                          onClick={() => setSelectedSlot(slot)}
+                          title={!slot.available ? (slot.isPast ? "Время уже прошло" : "Окно занято") : undefined}
+                          className={`py-2 px-2 rounded-xl text-xs font-semibold border transition-all ${
+                            !slot.available
+                              ? "bg-slate-900/40 border-slate-800/60 text-slate-600 line-through cursor-not-allowed opacity-40"
+                              : isSelected
+                              ? "bg-sky-500 text-slate-950 border-sky-400 shadow-md shadow-sky-500/20 font-bold"
+                              : "bg-slate-800/80 border-slate-700/80 text-slate-200 hover:border-sky-400/60 hover:bg-slate-800"
+                          }`}
+                        >
+                          {slot.time}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 

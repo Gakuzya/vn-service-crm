@@ -27,12 +27,11 @@ export async function GET(req: NextRequest) {
 
     const totalMechanics = mechanics.length || 1;
 
-    // Временные границы дня (от 09:00 до 20:00)
-    const [year, month, day] = dateStr.split("-").map(Number);
-    const dayStart = new Date(Date.UTC(year, month - 1, day, 0, 0, 0));
-    const dayEnd = new Date(Date.UTC(year, month - 1, day, 23, 59, 59));
+    // Временные границы дня строго по времени Астаны (UTC+5)
+    const dayStart = new Date(`${dateStr}T00:00:00+05:00`);
+    const dayEnd = new Date(`${dateStr}T23:59:59+05:00`);
 
-    // Существующие записи на этот день (не отмененные)
+    // Существующие активные записи на этот день (не отмененные)
     const appointments = await prisma.appointment.findMany({
       where: {
         stationId: station.id,
@@ -47,26 +46,56 @@ export async function GET(req: NextRequest) {
       },
     });
 
-    // Рабочее время: с 09:00 до 20:00 (шаг 30 минут)
+    // Рабочее время СТО VN SERVICE: с 09:00 до 20:00
     const workStartHour = 9;
     const workEndHour = 20;
     const slots = [];
     const now = new Date();
 
+    // Текущая дата и время в Астане (UTC+5)
+    const astanaDateNow = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Almaty",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(now);
+
+    const astanaHour = parseInt(
+      new Intl.DateTimeFormat("ru-RU", {
+        timeZone: "Asia/Almaty",
+        hour: "2-digit",
+        hour12: false,
+      }).format(now),
+      10
+    );
+
+    const astanaMinute = parseInt(
+      new Intl.DateTimeFormat("ru-RU", {
+        timeZone: "Asia/Almaty",
+        minute: "2-digit",
+        hour12: false,
+      }).format(now),
+      10
+    );
+
+    const isToday = dateStr === astanaDateNow;
+
     for (let hour = workStartHour; hour < workEndHour; hour++) {
       for (const minute of [0, 30]) {
-        // Проверяем, чтобы услуга успевала завершиться до конца рабочего дня
-        const slotStart = new Date(Date.UTC(year, month - 1, day, hour, minute));
+        const timeStr = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+        
+        // Начало слота в часовом поясе Астаны (+05:00)
+        const slotStart = new Date(`${dateStr}T${timeStr}:00+05:00`);
         const slotEnd = new Date(slotStart.getTime() + duration * 60 * 1000);
 
-        const slotEndHour = slotEnd.getUTCHours();
-        const slotEndMinute = slotEnd.getUTCMinutes();
-        if (slotEndHour > workEndHour || (slotEndHour === workEndHour && slotEndMinute > 0)) {
-          continue; // Услуга не успеет закончиться до закрытия
+        // Проверяем окончание до 20:00 по Астане
+        const workEndTime = new Date(`${dateStr}T${workEndHour}:00:00+05:00`);
+        if (slotEnd.getTime() > workEndTime.getTime()) {
+          continue; // Услуга не успеет закончиться до закрытия в 20:00
         }
 
-        // Проверка на прошлое время, если выбран сегодняшний день
-        const isPast = slotStart.getTime() < now.getTime() + 15 * 60 * 1000; // зазор 15 минут
+        // Проверка на прошедшее время с запасом 15 минут
+        const isPast = slotStart.getTime() <= now.getTime() + 15 * 60 * 1000;
 
         // Сколько механиков занято в этом интервале
         const overlappingAppointments = appointments.filter((app) => {
@@ -75,28 +104,45 @@ export async function GET(req: NextRequest) {
           return slotStart.getTime() < appEnd && slotEnd.getTime() > appStart;
         });
 
-        // Занятые механики
         const busyMechanicIds = new Set(
           overlappingAppointments.map((app) => app.mechanicId).filter(Boolean)
         );
 
-        // Слот доступен, если количество занятых записей меньше общего числа мастеров
+        // Слот доступен, только если он не в прошлом и есть свободный мастер
         const isAvailable =
           !isPast &&
           overlappingAppointments.length < totalMechanics &&
           busyMechanicIds.size < totalMechanics;
 
         slots.push({
-          time: `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`,
+          time: timeStr,
           slotStart: slotStart.toISOString(),
           slotEnd: slotEnd.toISOString(),
           available: isAvailable,
+          isPast,
           freeSlotsLeft: Math.max(0, totalMechanics - overlappingAppointments.length),
         });
       }
     }
 
-    return NextResponse.json({ slots, totalMechanics });
+    const availableSlots = slots.filter((s) => s.available);
+    const isStationClosed = astanaHour >= workEndHour || astanaHour < workStartHour;
+
+    return NextResponse.json({
+      slots,
+      totalMechanics,
+      meta: {
+        astanaDateNow,
+        astanaHour,
+        astanaMinute,
+        isToday,
+        isStationClosed,
+        availableSlotsCount: availableSlots.length,
+        nextOpenText: isStationClosed
+          ? (astanaHour < workStartHour ? "сегодня в 09:00" : "завтра в 09:00")
+          : null,
+      },
+    });
   } catch (error) {
     console.error("Ошибка при расчете слотов:", error);
     return NextResponse.json({ error: "Ошибка сервера при расчете доступного времени" }, { status: 500 });

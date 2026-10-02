@@ -1,5 +1,6 @@
 import React from "react";
 import BookingWidget from "@/components/BookingWidget";
+import LiveStationStatus from "@/components/LiveStationStatus";
 import Link from "next/link";
 import {
   ShieldCheck,
@@ -44,10 +45,7 @@ export default function Home() {
               <MapPin className="w-3.5 h-3.5 text-sky-400" />
               г. Астана, район Байконыр, пр. Акжол, 52/1
             </span>
-            <span className="flex items-center gap-1.5">
-              <Clock className="w-3.5 h-3.5 text-sky-400" />
-              Ежедневно: 09:00 – 20:00 (без выходных)
-            </span>
+            <LiveStationStatus />
           </div>
 
           <div className="flex items-center gap-4">

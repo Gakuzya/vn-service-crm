@@ -34,6 +34,15 @@ export async function POST(req: NextRequest) {
 
     const start = new Date(startTime);
     const end = new Date(endTime);
+    const now = new Date();
+
+    // Запрет записи на прошедшее время
+    if (start.getTime() < now.getTime() - 5 * 60 * 1000) {
+      return NextResponse.json(
+        { error: "Выбранное время уже прошло. Пожалуйста, выберите актуальное доступное окно." },
+        { status: 400 }
+      );
+    }
 
     // Подбираем свободного механика для данного слота
     const mechanics = await prisma.mechanic.findMany({
