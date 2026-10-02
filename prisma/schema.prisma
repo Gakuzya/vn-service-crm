@@ -1,0 +1,113 @@
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Статусы визита для воронки и CRM-дашборда
+enum AppointmentStatus {
+  PENDING         // Ожидает подтверждения
+  CONFIRMED       // Подтвержден (клиент приедет)
+  IN_PROGRESS     // В работе (на подъемнике)
+  WAITING_PARTS   // Ждет запчасти
+  READY           // Готово к выдаче
+  COMPLETED       // Завершен и оплачен
+  CANCELLED       // Отменен
+}
+
+// Профиль СТО
+model Station {
+  id          String   @id @default(uuid())
+  name        String
+  address     String?
+  phone       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  mechanics    Mechanic[]
+  services     Service[]
+  appointments Appointment[]
+
+  @@map("stations")
+}
+
+// Мастера / Механики / Посты
+model Mechanic {
+  id        String   @id @default(uuid())
+  stationId String
+  station   Station  @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  
+  name      String
+  specialty String?  // Специализация: моторист, электрик, слесарь
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  appointments Appointment[]
+
+  @@map("mechanics")
+}
+
+// Услуги СТО
+model Service {
+  id              String   @id @default(uuid())
+  stationId       String
+  station         Station  @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  
+  name            String
+  description     String?
+  durationMinutes Int      // Длительность для авторасчета таймлайна (например, 60, 90)
+  price           Decimal  @db.Decimal(10, 2)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  appointments Appointment[]
+
+  @@map("services")
+}
+
+// Запись на ремонт / визит
+model Appointment {
+  id             String            @id @default(uuid())
+  stationId      String
+  station        Station           @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  
+  serviceId      String
+  service        Service           @relation(fields: [serviceId], references: [id])
+  
+  mechanicId     String?           // Назначается администратором
+  mechanic       Mechanic?         @relation(fields: [mechanicId], references: [id], onDelete: SetNull)
+
+  // Временные рамки для таймлайна / диаграммы Ганта
+  startTime      DateTime
+  endTime        DateTime
+
+  // Данные клиента и авто
+  clientName     String
+  clientPhone    String
+  carMake        String            // Марка авто (например, BMW)
+  carModel       String            // Модель авто (например, X5)
+  carPlateNumber String?           // Госномер (опционально)
+  problemDesc    String?           @db.Text
+  
+  // Фото поломок (URLs из Supabase Storage)
+  photoUrls      String[]          @default([])
+
+  // Статус и Telegram
+  status         AppointmentStatus @default(PENDING)
+  telegramChatId String?           // Привязывается после перехода в бота
+  reminderSent24h Boolean          @default(false) // Флаг для Cron-скрипта напоминаний
+
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@index([stationId, startTime])
+  @@index([mechanicId, startTime])
+  @@index([status])
+  @@map("appointments")
+}
