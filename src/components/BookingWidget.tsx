@@ -78,7 +78,32 @@ export default function BookingWidget() {
 
   // Контакты
   const [clientName, setClientName] = useState("");
-  const [clientPhone, setClientPhone] = useState("+7 (7");
+  const [clientPhone, setClientPhone] = useState("+7 (");
+
+  // Автоматическая маска телефона: клиент вводит только цифры
+  const formatPhoneNumber = (input: string) => {
+    let digits = input.replace(/\D/g, "");
+
+    // Если вставили полный номер с 7 или 8 (11 цифр), отсекаем код страны
+    if (digits.length >= 11 && (digits.startsWith("7") || digits.startsWith("8"))) {
+      digits = digits.slice(1);
+    } else if (digits.startsWith("7")) {
+      digits = digits.slice(1);
+    }
+
+    digits = digits.slice(0, 10);
+
+    if (digits.length === 0) return "+7 (";
+    if (digits.length <= 3) return `+7 (${digits}`;
+    if (digits.length <= 6) return `+7 (${digits.slice(0, 3)}) ${digits.slice(3)}`;
+    if (digits.length <= 8) return `+7 (${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+    return `+7 (${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6, 8)}-${digits.slice(8, 10)}`;
+  };
+
+  const handlePhoneInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const formatted = formatPhoneNumber(e.target.value);
+    setClientPhone(formatted);
+  };
 
   // Отправка формы
   const [submitting, setSubmitting] = useState(false);
@@ -218,7 +243,10 @@ export default function BookingWidget() {
     if (step === 2) return carMake.trim().length > 0 && carModel.trim().length > 0;
     if (step === 3) return true;
     if (step === 4) return selectedSlot !== null;
-    if (step === 5) return clientName.trim().length >= 2 && clientPhone.trim().length >= 10;
+    if (step === 5) {
+      const digitsCount = clientPhone.replace(/\D/g, "").length;
+      return clientName.trim().length >= 2 && digitsCount >= 11;
+    }
     return false;
   };
 
@@ -664,16 +692,29 @@ export default function BookingWidget() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">
-                  Номер телефона (Казахстан) <span className="text-sky-400">*</span>
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-medium text-slate-300">
+                    Номер телефона <span className="text-sky-400">*</span>
+                  </label>
+                  <span className="text-[10px] text-slate-400">
+                    Вводите только цифры номера
+                  </span>
+                </div>
                 <input
                   type="tel"
-                  placeholder="+7 (771) 123-45-67"
+                  placeholder="+7 (771) 000-00-00"
                   value={clientPhone}
-                  onChange={(e) => setClientPhone(e.target.value)}
+                  onFocus={() => {
+                    if (!clientPhone || clientPhone.trim() === "") {
+                      setClientPhone("+7 (");
+                    }
+                  }}
+                  onChange={handlePhoneInputChange}
                   className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-400 transition-all font-mono"
                 />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Префикс +7 проставляется автоматически (например, 771 123 45 67)
+                </p>
               </div>
             </div>
 
